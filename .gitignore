@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+*.log
+psx_cache/
+psx_models/
+psx_predictions/
+admin_logs/
+.DS_Store
