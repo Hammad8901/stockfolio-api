@@ -19,6 +19,7 @@ import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from psx_companies import PSX_COMPANIES, PSX_COMPANY_MAP, DEFAULT_SYMBOLS
 from prediction import advanced_prediction
+from analysis import deep_analysis
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
@@ -98,8 +99,12 @@ def _fetch_news(symbol: str, max_results: int = 5) -> list[dict]:
     try:
         feed = feedparser.parse(url)
         for entry in feed.entries[:max_results]:
+            summary = entry.get('summary', '') or ''
+            import re as _re
+            summary = _re.sub(r'<[^>]+>', '', summary)[:300]
             articles.append({
                 'headline': entry.get('title', ''),
+                'summary': summary,
                 'source': entry.get('source', {}).get('title', 'Google News') if isinstance(entry.get('source'), dict) else 'Google News',
                 'published_at': entry.get('published', ''),
                 'url': entry.get('link', ''),
@@ -387,6 +392,40 @@ def portfolio_stock(symbol):
         'usd_exposure': usd_exposure,
         'top_news': news[:3],
         'indicators': indicators,
+    }
+    _cache_set(ckey, result, ttl=PORTFOLIO_TTL)
+    return jsonify(result)
+
+
+@app.route('/api/analysis/<symbol>')
+def analysis(symbol):
+    """Deep fused analysis: prediction + technical + sentiment + macro → verdict."""
+    range_ = request.args.get('range', '3M')
+    ckey = f'analysis_{symbol}_{range_}'
+    cached = _cache_get(ckey)
+    if cached:
+        return jsonify(cached)
+
+    ohlc = _ohlc_data(symbol, range_)
+    if not ohlc:
+        return jsonify({'error': f'No data for {symbol}'}), 404
+
+    price, change = _current_price(symbol)
+    news = _fetch_news(symbol, 10)
+    score, _ = _vader_sentiment([n['headline'] for n in news])
+    pred = advanced_prediction(ohlc, sentiment_score=score, indicators=None)
+
+    info = PSX_COMPANY_MAP.get(symbol, {'name': symbol, 'sector': '', 'usd_exposure': 'medium'})
+    deep = deep_analysis(ohlc, news, change, pred, info.get('usd_exposure', 'medium'))
+
+    result = {
+        'symbol': symbol,
+        'name': info['name'],
+        'sector': info.get('sector', ''),
+        'current_price': round(price, 2),
+        'change_percent': round(change, 2),
+        'top_news': news[:5],
+        **deep,
     }
     _cache_set(ckey, result, ttl=PORTFOLIO_TTL)
     return jsonify(result)

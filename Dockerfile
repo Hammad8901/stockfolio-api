@@ -7,6 +7,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Deep-learning extras (HF Spaces have the RAM): CPU-only torch for LSTM/GRU,
+# and transformers for FinBERT finance-news sentiment. Falls back gracefully if
+# these fail — the app imports them in try/except.
+RUN pip install --no-cache-dir torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir "transformers==4.44.2"
+
 COPY . .
 
 ENV PORT=7860
