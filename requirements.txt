@@ -1,7 +1,8 @@
 flask==3.0.3
 flask-cors==4.0.1
 flask-compress==1.15
-yfinance==0.2.54
+yfinance==0.2.65
+curl_cffi==0.7.4
 feedparser==6.0.11
 pandas==2.2.2
 numpy==1.26.4

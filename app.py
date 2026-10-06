@@ -13,6 +13,18 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_compress import Compress
 import yfinance as yf
+
+# Yahoo blocks plain datacenter requests; a curl_cffi session that impersonates
+# a real browser (TLS + headers) often gets through where vanilla requests 404.
+try:
+    from curl_cffi import requests as _cffi
+    _YF_SESSION = _cffi.Session(impersonate='chrome')
+except Exception:
+    _YF_SESSION = None
+
+
+def _ticker(symbol: str):
+    return yf.Ticker(symbol, session=_YF_SESSION) if _YF_SESSION else yf.Ticker(symbol)
 import feedparser
 import numpy as np
 import pandas as pd
@@ -78,7 +90,7 @@ def _usd_rate() -> float:
     if cached:
         return cached
     try:
-        tk = yf.Ticker('PKR=X')
+        tk = _ticker('PKR=X')
         hist = tk.history(period='2d')
         rate = float(hist['Close'].iloc[-1]) if not hist.empty else 278.0
     except Exception:
@@ -120,7 +132,7 @@ def _ohlc_data(symbol: str, period: str) -> list[dict]:
     period_map = {'1W': '7d', '1M': '1mo', '6M': '6mo', '1Y': '1y', '5Y': '5y'}
     yf_period = period_map.get(period, '1mo')
     try:
-        tk = yf.Ticker(symbol)
+        tk = _ticker(symbol)
         hist = tk.history(period=yf_period, interval='1d')
         if hist.empty:
             return []
@@ -143,7 +155,7 @@ def _ohlc_data(symbol: str, period: str) -> list[dict]:
 def _current_price(symbol: str) -> tuple[float, float]:
     """Returns (price, change_percent)"""
     try:
-        tk = yf.Ticker(symbol)
+        tk = _ticker(symbol)
         hist = tk.history(period='2d')
         if len(hist) >= 2:
             prev = float(hist['Close'].iloc[-2])
