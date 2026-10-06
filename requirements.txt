@@ -13,6 +13,12 @@ requests==2.32.3
 retrying==1.3.4
 gnews==0.3.7
 
-# Uncomment for FinBERT support (needs 500MB+ RAM — use Render paid tier):
+# ─── Optional deep-learning (LSTM / GRU) for the prediction ensemble ───
+# The ensemble runs fine WITHOUT these (Ridge + RandomForest + GradientBoosting
+# + Holt trend). Install torch to add LSTM & GRU sequence models — needs
+# ~512MB+ RAM, so use a Render paid tier or run locally. prediction.py imports
+# torch in a try/except and degrades gracefully if it's absent.
 # torch==2.3.1
+
+# Uncomment for FinBERT sentiment (needs 500MB+ RAM):
 # transformers==4.44.2

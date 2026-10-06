@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from psx_companies import PSX_COMPANIES, PSX_COMPANY_MAP, DEFAULT_SYMBOLS
+from prediction import advanced_prediction
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
@@ -350,24 +351,17 @@ def portfolio_stock(symbol):
     headlines = [n['headline'] for n in news]
     score, sentiment = _vader_sentiment(headlines)
 
-    rec = 'Buy' if score > 0.1 else 'Sell' if score < -0.1 else 'Hold'
-    if change > 2 and score > 0.1:
-        rec = 'Strong Buy'
-    elif change < -2 and score < -0.1:
-        rec = 'Strong Sell'
-
-    predicted, pred_conf = _linear_prediction(ohlc)
+    # Advanced ensemble prediction (LSTM/GRU + trees + trend) with XAI + action.
+    pred = advanced_prediction(ohlc, sentiment_score=score, indicators=None)
+    rec = pred['action']  # ensemble-driven Buy / Hold / Sell
+    predicted, pred_conf = pred['predicted_price'], pred['confidence']
     usd = _usd_rate()
 
     info = PSX_COMPANY_MAP.get(symbol, {'name': symbol, 'sector': '', 'usd_exposure': 'medium'})
     usd_exposure = info.get('usd_exposure', 'medium')
     usd_impact = {'high': 'High', 'medium': 'Medium', 'low': 'Low'}.get(usd_exposure, 'Medium')
 
-    explanation = (
-        f"{'Positive' if score > 0 else 'Negative' if score < 0 else 'Neutral'} market sentiment "
-        f"({abs(score)*100:.0f}% confidence). Price is {'up' if change >= 0 else 'down'} "
-        f"{abs(change):.2f}% today. USD/PKR exposure is {usd_exposure}."
-    )
+    explanation = pred['explanation']
 
     timestamps = [e['timestamp'] for e in ohlc]
     indicators = _build_indicators(ohlc, timestamps)
@@ -386,11 +380,42 @@ def portfolio_stock(symbol):
         'explanation': explanation,
         'predicted_price': predicted,
         'prediction_confidence': pred_conf,
+        'predicted_return_pct': pred['predicted_return_pct'],
+        'prediction': pred,  # full XAI breakdown: models, weights, feature importance
         'usd_rate': round(usd, 2),
         'usd_impact': usd_impact,
         'usd_exposure': usd_exposure,
         'top_news': news[:3],
         'indicators': indicators,
+    }
+    _cache_set(ckey, result, ttl=PORTFOLIO_TTL)
+    return jsonify(result)
+
+
+@app.route('/api/predict/<symbol>')
+def predict(symbol):
+    """Full ensemble prediction with XAI + Buy/Hold/Sell for one stock."""
+    range_ = request.args.get('range', '3M')
+    ckey = f'predict_{symbol}_{range_}'
+    cached = _cache_get(ckey)
+    if cached:
+        return jsonify(cached)
+
+    ohlc = _ohlc_data(symbol, range_)
+    if not ohlc:
+        return jsonify({'error': f'No data for {symbol}'}), 404
+
+    price, change = _current_price(symbol)
+    news = _fetch_news(symbol, 6)
+    score, _ = _vader_sentiment([n['headline'] for n in news])
+    pred = advanced_prediction(ohlc, sentiment_score=score, indicators=None)
+
+    result = {
+        'symbol': symbol,
+        'current_price': round(price, 2),
+        'change_percent': round(change, 2),
+        'sentiment_score': round(score, 3),
+        **pred,
     }
     _cache_set(ckey, result, ttl=PORTFOLIO_TTL)
     return jsonify(result)
